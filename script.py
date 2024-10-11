@@ -15,28 +15,51 @@ cap = cv2.VideoCapture(0)
 
 frames_elapsed = 0
 isWaving = False
-prev_wrist_x = None
+fingers = None
+prev_hand_x = None
 movement = 0
 
 def writeOnImage(frame):
-    global isWaving
+    global isWaving, fingers
     if frames_elapsed < CALIBRATION_FRAMES:
-        text = "Calibrating"
+        text = "Calibrating..."
     elif isWaving:
         text = "Waving"
+    elif fingers and not isWaving:
+        text = str(fingers)
     else:
         text = "None"
 
-    cv2.putText(frame, text, (10,20), cv2.FONT_HERSHEY_COMPLEX, 0.4,( 0 , 0 , 0 ),2,cv2.LINE_AA)
-    cv2.putText(frame, text, (10,20), cv2.FONT_HERSHEY_COMPLEX, 0.4,(255,255,255),1,cv2.LINE_AA)
+    cv2.putText(frame, text, (10,20), cv2.FONT_HERSHEY_COMPLEX, 0.8,( 0 , 0 , 0 ),2,cv2.LINE_AA)
+    cv2.putText(frame, text, (10,20), cv2.FONT_HERSHEY_COMPLEX, 0.8,(255,255,255),1,cv2.LINE_AA)
 
 def checkWaving(movement):
     global isWaving
 
-    if abs(movement) > 20:
+    if abs(movement) > 10:
         isWaving = True
     else:
         isWaving = False
+
+def isFingerExtended(hand_landmarks, finger_tip_id, finger_dip_id):
+    # If top part of finger is higher then "middle" part
+    return hand_landmarks.landmark[finger_tip_id].y < hand_landmarks.landmark[finger_dip_id].y
+
+def countFingers(hand_landmarks):
+    global fingers
+
+    thumb = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x > hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_IP].x
+    index = isFingerExtended(hand_landmarks, mp_hands.HandLandmark.INDEX_FINGER_TIP, mp_hands.HandLandmark.INDEX_FINGER_DIP)
+    middle = isFingerExtended(hand_landmarks, mp_hands.HandLandmark.MIDDLE_FINGER_TIP, mp_hands.HandLandmark.MIDDLE_FINGER_DIP)
+    ring = isFingerExtended(hand_landmarks, mp_hands.HandLandmark.RING_FINGER_TIP, mp_hands.HandLandmark.RING_FINGER_DIP)
+    pinky = isFingerExtended(hand_landmarks, mp_hands.HandLandmark.PINKY_TIP, mp_hands.HandLandmark.PINKY_DIP)
+
+    fingers = 0
+    count = [thumb, index, middle, ring, pinky]
+    for finger in count:
+        if finger:
+            fingers += 1
+    print(count)
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -53,25 +76,24 @@ while cap.isOpened():
     
     # Check if hands are detected
     if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
-            # Draw landmarks on the frame
-            wrist_x = hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].x
-            wrist_x_pixels = int(wrist_x * frame_width)
+        for i, hand_landmarks in enumerate(results.multi_hand_landmarks):
+            # Gets x coordinates of hand every 8 frames
+            hand_x = hand_landmarks.landmark[i].x
+            # Turn coordinates into pixels
+            hand_x_pixels = int(hand_x * frame_width)
 
-            if prev_wrist_x is not None:
-                movement = wrist_x_pixels - prev_wrist_x
+            # If there is previous pixel calculate movement else initialize previous pixel
+            if prev_hand_x is not None:
+                movement = hand_x_pixels - prev_hand_x
 
-            prev_wrist_x = wrist_x_pixels
+            prev_hand_x = hand_x_pixels
 
             if frames_elapsed % 8 == 0:
                 checkWaving(movement)
+                countFingers(hand_landmarks)
 
+            # Draw landmarks(lines) on the hand
             mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-            # for i, landmark in enumerate(hand_landmarks.landmark):
-            #     if i > 0 and frames_elapsed % 8 == 0:
-            #         prevCenterX = hand_landmarks.landmark[i-1].x
-            #         checkWaving(landmark.x)
-            #         # print(prevCenterX, landmark.x)
     
     #flip the camera to be like mirror
     frame = cv2.flip(frame, 1)
